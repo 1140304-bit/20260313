@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>霓虹槍戰：一頁式小遊戲</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --panel: #101a2f;
+      --accent: #00e5ff;
+      --danger: #ff4d6d;
+      --ok: #7dff8a;
+      --text: #e7f1ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 20% 20%, #182646 0 20%, transparent 45%),
+        radial-gradient(circle at 80% 80%, #311437 0 18%, transparent 40%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    }
+
+    .wrap {
+      width: min(92vw, 900px);
+      padding: 20px;
+      border: 1px solid #2a3a5f;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #0d1730, #0a1120);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(1.4rem, 2.4vw, 2rem);
+      letter-spacing: 1px;
+      color: var(--accent);
+    }
+
+    .hud {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid #2a3a5f;
+      border-radius: 12px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+
+    .hint {
+      margin: 8px 0 12px;
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      border: 1px solid #2a3a5f;
+      background: linear-gradient(180deg, #111a32 0%, #12192b 65%, #0f1420 100%);
+      display: block;
+      cursor: crosshair;
+    }
+
+    .controls {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      border: 0;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 700;
+      color: #00141b;
+      background: var(--accent);
+      cursor: pointer;
+    }
+
+    button:hover { filter: brightness(1.08); }
+
+    .status { color: var(--ok); font-weight: 700; }
+
+    @media (max-width: 700px) {
+      .hud { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>霓虹槍戰：守城模式</h1>
+
+    <section class="hud">
+      <div class="card">分數：<span id="score">0</span></div>
+      <div class="card">生命：<span id="hp">100</span></div>
+      <div class="card">命中：<span id="hit">0</span></div>
+      <div class="card">剩餘時間：<span id="time">60</span>s</div>
+    </section>
+
+    <p class="hint">操作方式：滑鼠移動瞄準，點擊射擊。每擊中一個敵人 +10 分；敵人碰到底線會扣生命。</p>
+
+    <canvas id="game" width="860" height="450" aria-label="槍戰遊戲畫布"></canvas>
+
+    <div class="controls">
+      <button id="restart">重新開始</button>
+      <span class="status" id="status">戰鬥中...</span>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const scoreEl = document.getElementById('score');
+    const hpEl = document.getElementById('hp');
+    const hitEl = document.getElementById('hit');
+    const timeEl = document.getElementById('time');
+    const statusEl = document.getElementById('status');
+    const restartBtn = document.getElementById('restart');
+
+    let score = 0;
+    let hp = 100;
+    let hit = 0;
+    let timeLeft = 60;
+    let running = true;
+
+    const crosshair = { x: canvas.width / 2, y: canvas.height / 2 };
+    const enemies = [];
+    const bullets = [];
+
+    function spawnEnemy() {
+      if (!running) return;
+      const radius = 12 + Math.random() * 14;
+      enemies.push({
+        x: Math.random() * (canvas.width - radius * 2) + radius,
+        y: -radius,
+        r: radius,
+        speed: 0.8 + Math.random() * 1.4,
+      });
+    }
+
+    function shoot(x, y) {
+      if (!running) return;
+      bullets.push({ x, y, life: 12 });
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        const dx = x - e.x;
+        const dy = y - e.y;
+        if (Math.hypot(dx, dy) <= e.r + 8) {
+          enemies.splice(i, 1);
+          score += 10;
+          hit += 1;
+        }
+      }
+      updateHUD();
+    }
+
+    function drawCrosshair() {
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(crosshair.x, crosshair.y, 12, 0, Math.PI * 2);
+      ctx.moveTo(crosshair.x - 20, crosshair.y);
+      ctx.lineTo(crosshair.x + 20, crosshair.y);
+      ctx.moveTo(crosshair.x, crosshair.y - 20);
+      ctx.lineTo(crosshair.x, crosshair.y + 20);
+      ctx.stroke();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#132447';
+      ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
+
+      enemies.forEach((e) => {
+        ctx.fillStyle = '#ff4d6d';
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffd6df';
+        ctx.beginPath();
+        ctx.arc(e.x - e.r * 0.3, e.y - e.r * 0.2, e.r * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        ctx.fillStyle = `rgba(0, 229, 255, ${b.life / 12})`;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 6 + (12 - b.life), 0, Math.PI * 2);
+        ctx.fill();
+        b.life -= 1;
+        if (b.life <= 0) bullets.splice(i, 1);
+      }
+
+      drawCrosshair();
+    }
+
+    function update() {
+      if (!running) return;
+
+      enemies.forEach((e) => {
+        e.y += e.speed;
+        if (e.y + e.r >= canvas.height - 24) {
+          hp = Math.max(0, hp - 10);
+          e.y = -999;
+        }
+      });
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        if (enemies[i].y < -500) enemies.splice(i, 1);
+      }
+
+      if (hp <= 0 || timeLeft <= 0) {
+        running = false;
+        statusEl.textContent = `戰鬥結束！總分 ${score}`;
+        statusEl.style.color = '#ffb3c2';
+      }
+
+      updateHUD();
+    }
+
+    function updateHUD() {
+      scoreEl.textContent = score;
+      hpEl.textContent = hp;
+      hitEl.textContent = hit;
+      timeEl.textContent = timeLeft;
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      crosshair.x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+      crosshair.y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    });
+
+    canvas.addEventListener('click', () => shoot(crosshair.x, crosshair.y));
+
+    restartBtn.addEventListener('click', () => {
+      score = 0;
+      hp = 100;
+      hit = 0;
+      timeLeft = 60;
+      enemies.length = 0;
+      bullets.length = 0;
+      running = true;
+      statusEl.textContent = '戰鬥中...';
+      statusEl.style.color = '#7dff8a';
+      updateHUD();
+    });
+
+    setInterval(spawnEnemy, 700);
+    setInterval(() => {
+      if (running && timeLeft > 0) timeLeft -= 1;
+    }, 1000);
+
+    updateHUD();
+    gameLoop();
+  </script>
+</body>
+</html>
